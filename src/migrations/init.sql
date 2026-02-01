@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS currency_types (
     currency_code VARCHAR(3) UNIQUE NOT NULL,
     currency_name VARCHAR(100) NOT NULL,
     currency_name_tr VARCHAR(100),
-    is_active BOOLEAN DEFAULT true,
+    is_active BOOLEAN DEFAULT true, 
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
