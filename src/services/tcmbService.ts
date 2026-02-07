@@ -1,37 +1,9 @@
 import axios from 'axios';
-import { parseStringPromise } from 'xml2js';
+import { XMLParser } from 'fast-xml-parser';
 import { TCMBResponse, TCMBCurrency, ExchangeRate, CurrencyType } from '../models/types';
 import { getConfig } from '../config';
 import { withRetry } from '../utils/retry';
 import logger from '../utils/logger';
-
-interface TCMBXMLCurrency {
-  $: {
-    Kod: string;
-    CurrencyCode: string;
-    CrossOrder: string;
-  };
-  Unit: string[];
-  Isim: string[];
-  CurrencyName: string[];
-  ForexBuying: string[];
-  ForexSelling: string[];
-  BanknoteBuying: string[];
-  BanknoteSelling: string[];
-  CrossRateUSD: string[];
-  CrossRateOther: string[];
-}
-
-interface TCMBXMLResponse {
-  Tarih_Date: {
-    $: {
-      Tarih: string;
-      Date: string;
-      Bulten_No: string;
-    };
-    Currency: TCMBXMLCurrency[];
-  };
-}
 
 function parseNumber(value: string | undefined): number | null {
   if (!value || value.trim() === '') return null;
@@ -44,6 +16,11 @@ function parseTCMBDate(dateStr: string): Date {
   const [day, month, year] = dateStr.split('.');
   return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
 }
+
+const xmlParser = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: '@_'
+});
 
 export async function fetchTodayRates(): Promise<{ response: TCMBResponse; responseTimeMs: number }> {
   const config = getConfig();
@@ -69,7 +46,7 @@ export async function fetchTodayRates(): Promise<{ response: TCMBResponse; respo
 
   const responseTimeMs = Date.now() - startTime;
 
-  const parsedResponse = await parseXMLResponse(xmlData);
+  const parsedResponse = parseXMLResponse(xmlData);
 
   return { response: parsedResponse, responseTimeMs };
 }
@@ -104,29 +81,39 @@ export async function fetchRatesByDate(date: Date): Promise<{ response: TCMBResp
 
   const responseTimeMs = Date.now() - startTime;
 
-  const parsedResponse = await parseXMLResponse(xmlData);
+  const parsedResponse = parseXMLResponse(xmlData);
 
   return { response: parsedResponse, responseTimeMs };
 }
 
-export async function parseXMLResponse(xmlString: string): Promise<TCMBResponse> {
-  const result = await parseStringPromise(xmlString) as TCMBXMLResponse;
+export function parseXMLResponse(xmlString: string): TCMBResponse {
+  const result = xmlParser.parse(xmlString);
 
   const root = result.Tarih_Date;
-  const dateStr = root.$.Tarih;
-  const bulletinNo = root.$.Bulten_No;
+  const dateStr = root['@_Tarih'] ?? '';
+  const bulletinNo = root['@_Bulten_No'] ?? '';
 
-  const currencies: TCMBCurrency[] = root.Currency.map(curr => ({
-    code: curr.$.CurrencyCode || curr.$.Kod,
-    unit: parseInt(curr.Unit?.[0] || '1', 10),
-    name: curr.CurrencyName?.[0] || '',
-    nameTR: curr.Isim?.[0] || '',
-    forexBuying: parseNumber(curr.ForexBuying?.[0]),
-    forexSelling: parseNumber(curr.ForexSelling?.[0]),
-    banknoteBuying: parseNumber(curr.BanknoteBuying?.[0]),
-    banknoteSelling: parseNumber(curr.BanknoteSelling?.[0]),
-    crossRateUSD: parseNumber(curr.CrossRateUSD?.[0]),
-    crossRateOther: parseNumber(curr.CrossRateOther?.[0])
+  const currencyList = root.Currency;
+  const currencyArray = Array.isArray(currencyList) ? currencyList : currencyList ? [currencyList] : [];
+
+  const getText = (val: unknown): string => {
+    if (val === undefined || val === null) return '';
+    if (typeof val === 'string') return val;
+    if (typeof val === 'object' && val !== null && '#text' in val) return String((val as { '#text': string })['#text']);
+    return String(val);
+  };
+
+  const currencies: TCMBCurrency[] = currencyArray.map((curr: Record<string, unknown>) => ({
+    code: (curr['@_CurrencyCode'] ?? curr['@_Kod'] ?? '') as string,
+    unit: parseInt(getText(curr.Unit) || '1', 10),
+    name: getText(curr.CurrencyName),
+    nameTR: getText(curr.Isim),
+    forexBuying: parseNumber(getText(curr.ForexBuying)),
+    forexSelling: parseNumber(getText(curr.ForexSelling)),
+    banknoteBuying: parseNumber(getText(curr.BanknoteBuying)),
+    banknoteSelling: parseNumber(getText(curr.BanknoteSelling)),
+    crossRateUSD: parseNumber(getText(curr.CrossRateUSD)),
+    crossRateOther: parseNumber(getText(curr.CrossRateOther))
   }));
 
   logger.info(`Parsed ${currencies.length} currencies for date ${dateStr}`);

@@ -240,6 +240,19 @@ export async function getRatesByDate(date: Date): Promise<ExchangeRate[]> {
   }));
 }
 
+export async function getExistingRateDates(fromDate: Date, toDate: Date): Promise<Set<string>> {
+  const pool = getPool();
+
+  const query = `
+    SELECT DISTINCT rate_date::text as date_str
+    FROM exchange_rates
+    WHERE rate_date >= $1 AND rate_date <= $2
+  `;
+
+  const result = await pool.query(query, [fromDate, toDate]);
+  return new Set(result.rows.map((r) => r.date_str));
+}
+
 export async function getLastSuccessfulFetch(): Promise<FetchLog | null> {
   const pool = getPool();
 

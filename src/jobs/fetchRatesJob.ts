@@ -12,25 +12,34 @@ import {
 } from '../services/databaseService';
 import logger from '../utils/logger';
 
+let isJobRunning = false;
+
 export async function executeFetchRatesJob(): Promise<void> {
+  if (isJobRunning) {
+    logger.warn('Fetch job already running, skipping scheduled execution');
+    return;
+  }
+  isJobRunning = true;
+
+  let logId: number | undefined;
   const executionStart = new Date();
-  const fetchDate = new Date();
-  fetchDate.setHours(0, 0, 0, 0);
-
-  logger.info('Starting fetch rates job');
-
-  // Create initial log entry
-  const logId = await createFetchLog({
-    fetchDate,
-    scheduledTime: executionStart,
-    executionStart,
-    status: 'RUNNING',
-    recordsInserted: 0,
-    recordsUpdated: 0,
-    recordsFailed: 0
-  });
 
   try {
+    const fetchDate = new Date();
+    fetchDate.setHours(0, 0, 0, 0);
+
+    logger.info('Starting fetch rates job');
+
+    // Create initial log entry
+    logId = await createFetchLog({
+      fetchDate,
+      scheduledTime: executionStart,
+      executionStart,
+      status: 'RUNNING',
+      recordsInserted: 0,
+      recordsUpdated: 0,
+      recordsFailed: 0
+    });
     // Fetch rates from TCMB
     logger.info('Fetching rates from TCMB...');
     const { response, responseTimeMs } = await fetchTodayRates();
@@ -102,16 +111,20 @@ export async function executeFetchRatesJob(): Promise<void> {
       stack: err.stack
     });
 
-    // Update log with error
-    await updateFetchLog(logId, {
-      executionEnd,
-      status: 'ERROR',
-      executionTimeMs,
-      errorMessage: err.message,
-      errorStack: err.stack
-    });
+    // Update log with error (only if log was created)
+    if (logId !== undefined) {
+      await updateFetchLog(logId, {
+        executionEnd,
+        status: 'ERROR',
+        executionTimeMs,
+        errorMessage: err.message,
+        errorStack: err.stack
+      });
+    }
 
     throw err;
+  } finally {
+    isJobRunning = false;
   }
 }
 

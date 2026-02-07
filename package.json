@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/app.js",
+    "fill-history": "node dist/app.js --fill-history",
     "dev": "ts-node src/app.ts",
     "dev:watch": "nodemon --exec ts-node src/app.ts",
     "migrate": "ts-node src/migrations/run.ts"
@@ -21,17 +22,16 @@
   "dependencies": {
     "axios": "^1.13.4",
     "dotenv": "^17.2.3",
+    "fast-xml-parser": "^5.3.4",
     "node-cron": "^4.2.1",
     "pg": "^8.18.0",
     "winston": "^3.19.0",
-    "xml2js": "^0.6.2",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^25.1.0",
     "@types/node-cron": "^3.0.11",
     "@types/pg": "^8.16.0",
-    "@types/xml2js": "^0.4.14",
     "nodemon": "^3.1.11",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"

@@ -4,6 +4,7 @@ dotenv.config();
 import * as cron from 'node-cron';
 import { connectDatabase, disconnectDatabase, getConfig } from './config';
 import { executeFetchRatesJob } from './jobs/fetchRatesJob';
+import { executeFetchHistoricalJob } from './jobs/fetchHistoricalJob';
 import logger from './utils/logger';
 
 let scheduledTask: cron.ScheduledTask | null = null;
@@ -24,14 +25,16 @@ async function startScheduler(): Promise<void> {
 
   scheduledTask = cron.schedule(
     cronExpression,
-    async () => {
-      logger.info('Scheduled job triggered');
-      try {
-        await executeFetchRatesJob();
-      } catch (error) {
-        const err = error instanceof Error ? error : new Error(String(error));
-        logger.error('Scheduled job failed', { error: err.message });
-      }
+    () => {
+      setImmediate(async () => {
+        logger.info('Scheduled job triggered');
+        try {
+          await executeFetchRatesJob();
+        } catch (error) {
+          const err = error instanceof Error ? error : new Error(String(error));
+          logger.error('Scheduled job failed', { error: err.message });
+        }
+      });
     },
     {
       timezone: config.scheduler.timezone
@@ -74,6 +77,34 @@ async function main(): Promise<void> {
   // Connect to database
   await connectDatabase();
 
+  const args = process.argv.slice(2);
+
+  // Fill historical data (runs once and exits)
+  if (args.includes('--fill-history')) {
+    const fromArg = args.find((a) => a.startsWith('--from='));
+    const toArg = args.find((a) => a.startsWith('--to='));
+    const fillIdx = args.indexOf('--fill-history');
+    const from = fromArg ? fromArg.split('=')[1] : args[fillIdx + 1];
+    const to = toArg ? toArg.split('=')[1] : args[fillIdx + 2];
+
+    if (!from || !to) {
+      logger.error('Usage: --fill-history --from=YYYY-MM-DD --to=YYYY-MM-DD');
+      process.exit(1);
+    }
+
+    try {
+      const result = await executeFetchHistoricalJob(from, to);
+      logger.info('Historical fill completed', result);
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      logger.error('Historical fill failed', { error: err.message });
+      process.exit(1);
+    }
+
+    await gracefulShutdown('FILL_HISTORY');
+    return;
+  }
+
   // Start scheduler
   await startScheduler();
 
@@ -82,7 +113,6 @@ async function main(): Promise<void> {
   process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
   // Check for manual run flag
-  const args = process.argv.slice(2);
   if (args.includes('--run-now') || args.includes('-r')) {
     logger.info('Manual run flag detected, executing fetch job immediately...');
     try {
